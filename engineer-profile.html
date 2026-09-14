@@ -1,3 +1,5 @@
+rm /home/claude/farm-platform-html/engineer-profile.html
+cat > /home/claude/farm-platform-html/engineer-profile.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -70,13 +72,18 @@
     margin-top:4px; padding:10px; border:none; border-radius:8px; background:var(--leaf); color:var(--paper);
     font-family:'Tajawal'; font-weight:700; font-size:13.5px; cursor:pointer;
   }
+  form.inline-form button.cancel-edit{
+    margin-top:2px; padding:9px; border:1px solid var(--line); border-radius:8px; background:var(--paper); color:var(--ink);
+    font-family:'Tajawal'; font-weight:700; font-size:13px; cursor:pointer;
+  }
 
   .item-card{ border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:10px; background:#fff; cursor:pointer; }
   .item-card .item-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
   .item-card .item-title{ font-family:'Tajawal'; font-weight:700; color:var(--leaf-deep); font-size:14.5px; }
   .item-card .item-sub{ font-size:12.5px; color:#5b543f; margin-top:3px; }
-  .item-actions{ display:flex; gap:8px; flex-shrink:0; }
+  .item-actions{ display:flex; gap:8px; flex-shrink:0; flex-wrap:wrap; }
   .item-actions button{ font-size:12px; border:none; background:none; cursor:pointer; color:var(--rust); font-family:inherit; }
+  .item-actions .edit-btn{ color:var(--leaf-deep); }
   .item-actions .delete-btn{ color:var(--error); }
   .nested{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--line); display:none; }
   .nested.active{ display:block; }
@@ -153,6 +160,7 @@
     <h2>🚜 المزارع اللي بتتابعها</h2>
     <button class="toggle-form-btn" id="toggle-farm-form">+ إضافة مزرعة جديدة</button>
     <form class="inline-form" id="farm-form">
+      <input type="hidden" id="edit-farm-id">
       <div>
         <label>اسم المزرعة</label>
         <input type="text" id="farm-name" required>
@@ -194,7 +202,8 @@
           <option value="غمر">غمر</option>
         </select>
       </div>
-      <button class="save" type="submit">حفظ المزرعة</button>
+      <button class="save" type="submit" id="farm-form-save-btn">حفظ المزرعة</button>
+      <button class="cancel-edit" type="button" id="farm-form-cancel-btn" style="display:none;">إلغاء التعديل</button>
     </form>
     <div id="farms-list"><div class="empty-hint">جاري التحميل...</div></div>
   </div>
@@ -205,10 +214,12 @@
     <div class="item-sub" id="farm-detail-meta"></div>
     <button class="toggle-form-btn" id="add-crop-btn">+ إضافة محصول</button>
     <form class="inline-form" id="crop-form">
+      <input type="hidden" id="edit-crop-id">
       <div><label>نوع المحصول</label><input type="text" id="crop-type" required></div>
       <div><label>الصنف</label><input type="text" id="crop-variety"></div>
       <div><label>تاريخ الزراعة</label><input type="date" id="crop-date"></div>
-      <button class="save" type="submit">حفظ المحصول</button>
+      <button class="save" type="submit" id="crop-form-save-btn">حفظ المحصول</button>
+      <button class="cancel-edit" type="button" id="crop-form-cancel-btn" style="display:none;">إلغاء التعديل</button>
     </form>
     <div id="crops-list"><div class="empty-hint">جاري التحميل...</div></div>
   </div>
@@ -246,7 +257,7 @@
   });
 
   async function init(){
-    // بناء قائمة المحافظات والمراكز لفورم إضافة المزرعة
+    // بناء قائمة المحافظات والمراكز لفورم إضافة/تعديل المزرعة
     AgroNexLocations.buildPicker({
       govSelectId: 'farm-governorate',
       centerSelectId: 'farm-center',
@@ -333,7 +344,6 @@
     msg.className = 'profile-msg';
     msg.textContent = '';
 
-    // 1) تحديث الاسم ورقم الموبايل في جدول profiles
     const { error: profileError } = await db
       .from('profiles')
       .update({ full_name: newName, phone: newPhone || null })
@@ -349,7 +359,6 @@
 
     document.getElementById('full-name').textContent = newName;
 
-    // 2) لو الإيميل اتغيّر، ابعت طلب تحديث (هيحتاج تأكيد من الإيميل الجديد)
     let emailNotice = '';
     if(newEmail && newEmail !== currentUser.email){
       const { error: emailError } = await db.auth.updateUser({ email: newEmail });
@@ -366,9 +375,24 @@
     msg.textContent = '✅ تم حفظ البيانات.' + emailNotice;
   });
 
-  // إظهار/إخفاء فورم إضافة مزرعة
+  // ===== فورم المزرعة (إضافة + تعديل) =====
   document.getElementById('toggle-farm-form').addEventListener('click', () => {
+    resetFarmForm();
     document.getElementById('farm-form').classList.toggle('active');
+  });
+
+  function resetFarmForm(){
+    document.getElementById('farm-form').reset();
+    document.getElementById('edit-farm-id').value = '';
+    document.getElementById('farm-form-save-btn').textContent = 'حفظ المزرعة';
+    document.getElementById('farm-form-cancel-btn').style.display = 'none';
+    document.getElementById('farm-governorate-other').style.display = 'none';
+    document.getElementById('farm-center-other').style.display = 'none';
+  }
+
+  document.getElementById('farm-form-cancel-btn').addEventListener('click', () => {
+    resetFarmForm();
+    document.getElementById('farm-form').classList.remove('active');
   });
 
   document.getElementById('farm-form').addEventListener('submit', async (e) => {
@@ -387,12 +411,47 @@
     const area_size = document.getElementById('farm-area').value || null;
     const soil_type = document.getElementById('farm-soil').value || null;
     const irrigation_type = document.getElementById('farm-irrigation').value || null;
-    const { error } = await db.from('farms').insert({ owner_id: currentUser.id, farm_name, location_text, area_size, soil_type, irrigation_type });
+
+    const editId = document.getElementById('edit-farm-id').value;
+    const payload = { farm_name, location_text, area_size, soil_type, irrigation_type };
+
+    let error;
+    if(editId){
+      ({ error } = await db.from('farms').update(payload).eq('id', editId));
+    } else {
+      ({ error } = await db.from('farms').insert({ ...payload, owner_id: currentUser.id }));
+    }
+
     if(error){ alert('خطأ: ' + error.message); return; }
-    e.target.reset();
+    resetFarmForm();
     e.target.classList.remove('active');
     loadFarms();
   });
+
+  function openFarmEdit(farm){
+    document.getElementById('edit-farm-id').value = farm.id;
+    document.getElementById('farm-name').value = farm.farm_name || '';
+    document.getElementById('farm-area').value = farm.area_size || '';
+    document.getElementById('farm-soil').value = farm.soil_type || '';
+    document.getElementById('farm-irrigation').value = farm.irrigation_type || '';
+
+    // محاولة استرجاع المحافظة/المركز/القرية من النص المخزّن (لو متطابق مع القوائم الموجودة)
+    document.getElementById('farm-village').value = '';
+    document.getElementById('farm-governorate-other').style.display = 'none';
+    document.getElementById('farm-center-other').style.display = 'none';
+    if(farm.location_text){
+      const parts = farm.location_text.split(' - ');
+      const [gov, center, ...villageParts] = parts;
+      if(gov) document.getElementById('farm-governorate').value = gov;
+      if(center) document.getElementById('farm-center').value = center;
+      if(villageParts.length) document.getElementById('farm-village').value = villageParts.join(' - ');
+    }
+
+    document.getElementById('farm-form-save-btn').textContent = 'حفظ التعديلات';
+    document.getElementById('farm-form-cancel-btn').style.display = 'block';
+    document.getElementById('farm-form').classList.add('active');
+    document.getElementById('farm-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   async function loadFarms(){
     const list = document.getElementById('farms-list');
@@ -412,6 +471,7 @@
             <div class="item-sub">${farm.location_text || 'بدون موقع محدد'} ${farm.area_size ? '· ' + farm.area_size + ' فدان' : ''}</div>
           </div>
           <div class="item-actions">
+            <button class="edit-btn edit-farm-btn">✏️ تعديل</button>
             <button class="delete-btn delete-farm-btn">حذف</button>
           </div>
         </div>
@@ -419,8 +479,13 @@
       list.appendChild(card);
 
       card.addEventListener('click', (e) => {
-        if(e.target.closest('.delete-farm-btn')) return;
+        if(e.target.closest('.delete-farm-btn') || e.target.closest('.edit-farm-btn')) return;
         openFarmDetail(farm);
+      });
+
+      card.querySelector('.edit-farm-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openFarmEdit(farm);
       });
 
       card.querySelector('.delete-farm-btn').addEventListener('click', async (e) => {
@@ -439,8 +504,8 @@
     document.getElementById('farm-detail-title').textContent = '🌾 ' + farm.farm_name;
     document.getElementById('farm-detail-meta').textContent =
       (farm.location_text || 'بدون موقع محدد') + (farm.area_size ? ' · ' + farm.area_size + ' فدان' : '');
+    resetCropForm();
     document.getElementById('crop-form').classList.remove('active');
-    document.getElementById('crop-form').reset();
     loadCrops(farm.id);
   }
 
@@ -451,8 +516,22 @@
     loadFarms();
   });
 
+  // ===== فورم المحصول (إضافة + تعديل) =====
   document.getElementById('add-crop-btn').addEventListener('click', () => {
+    resetCropForm();
     document.getElementById('crop-form').classList.toggle('active');
+  });
+
+  function resetCropForm(){
+    document.getElementById('crop-form').reset();
+    document.getElementById('edit-crop-id').value = '';
+    document.getElementById('crop-form-save-btn').textContent = 'حفظ المحصول';
+    document.getElementById('crop-form-cancel-btn').style.display = 'none';
+  }
+
+  document.getElementById('crop-form-cancel-btn').addEventListener('click', () => {
+    resetCropForm();
+    document.getElementById('crop-form').classList.remove('active');
   });
 
   document.getElementById('crop-form').addEventListener('submit', async (e) => {
@@ -460,12 +539,33 @@
     const crop_type = document.getElementById('crop-type').value;
     const variety = document.getElementById('crop-variety').value;
     const planting_date = document.getElementById('crop-date').value || null;
-    const { error } = await db.from('crops').insert({ farm_id: activeFarmId, crop_type, variety, planting_date });
+
+    const editId = document.getElementById('edit-crop-id').value;
+    const payload = { crop_type, variety, planting_date };
+
+    let error;
+    if(editId){
+      ({ error } = await db.from('crops').update(payload).eq('id', editId));
+    } else {
+      ({ error } = await db.from('crops').insert({ ...payload, farm_id: activeFarmId }));
+    }
+
     if(error){ alert('خطأ: ' + error.message); return; }
-    e.target.reset();
+    resetCropForm();
     e.target.classList.remove('active');
     loadCrops(activeFarmId);
   });
+
+  function openCropEdit(crop){
+    document.getElementById('edit-crop-id').value = crop.id;
+    document.getElementById('crop-type').value = crop.crop_type || '';
+    document.getElementById('crop-variety').value = crop.variety || '';
+    document.getElementById('crop-date').value = crop.planting_date || '';
+    document.getElementById('crop-form-save-btn').textContent = 'حفظ التعديلات';
+    document.getElementById('crop-form-cancel-btn').style.display = 'block';
+    document.getElementById('crop-form').classList.add('active');
+    document.getElementById('crop-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   async function loadCrops(farmId){
     const container = document.getElementById('crops-list');
@@ -485,6 +585,7 @@
             <div class="item-sub">${crop.planting_date ? 'زراعة: ' + crop.planting_date : 'بدون تاريخ زراعة'}</div>
           </div>
           <div class="item-actions">
+            <button class="edit-btn edit-crop-btn">✏️ تعديل</button>
             <button class="show-log-btn">سجل المعاملات</button>
             <button class="delete-btn delete-crop-btn">حذف</button>
           </div>
@@ -500,6 +601,11 @@
         </div>
       `;
       container.appendChild(item);
+
+      item.querySelector('.edit-crop-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openCropEdit(crop);
+      });
 
       item.querySelector('.delete-crop-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -550,3 +656,5 @@
 </script>
 </body>
 </html>
+HTMLEOF
+node -e "require('fs').readFileSync('/home/claude/farm-platform-html/engineer-profile.html','utf8'); console.log('تم إنشاء الملف بنجاح')"
